@@ -47,6 +47,9 @@ extension Money {
     /// - Returns: Nothing for an empty sequence — there is no zero without a
     ///   currency to be zero in, and picking one would be inventing an
     ///   answer.
+    /// - Precondition: Everything in it is in the same currency, since this
+    ///   is `+` in a loop and `+` will not mix them. Check before totalling
+    ///   anything assembled from a file, rather than after.
     public static func total<S: Sequence>(_ amounts: S) -> Money? where S.Element == Money {
         var iterator = amounts.makeIterator()
         guard var sum = iterator.next() else { return nil }
@@ -57,6 +60,40 @@ extension Money {
     static func mixed(_ left: Money, _ right: Money) -> String {
         "Cannot add \(left.currency) to \(right.currency). Two currencies are two amounts, and "
             + "turning one into the other needs a rate and a date that this does not have."
+    }
+}
+
+// MARK: - Adding up a column of them
+
+extension Sequence where Element == Money {
+
+    /// Everything in it, added up.
+    ///
+    /// Reads the way the thing being done reads — `lines.map(\.amount).total`
+    /// rather than `Money.total(lines.map(\.amount))` — and, being written on
+    /// a sequence of `Money` rather than on `Sequence`, it appears only where
+    /// there is money to add. A library that puts `.money` on every `String`
+    /// in a program is charging everybody for a convenience one file wanted.
+    ///
+    /// - Returns: Nothing for an empty sequence — there is no zero without a
+    ///   currency to be zero in.
+    public var total: Money? { Money.total(self) }
+
+    /// Everything in it, added up, in a currency stated rather than inferred.
+    ///
+    /// The form for a column of figures that came from somewhere: it knows
+    /// what the total is supposed to be in, so an empty list is zero in that
+    /// currency instead of nothing, and a stray amount in another one is a
+    /// refusal instead of a stopped process.
+    ///
+    /// - Returns: Nothing if anything in it is in a different currency.
+    public func total(in currency: Currency) -> Money? {
+        var sum = Money.zero(currency)
+        for amount in self {
+            guard amount.currency == currency else { return nil }
+            sum += amount
+        }
+        return sum
     }
 }
 
@@ -146,13 +183,28 @@ extension Money {
         let total = ratios.reduce(0, +)
         guard !ratios.isEmpty, total > 0 else { return [] }
 
-        var shares = ratios.map { units * $0 / total }
+        // Worked in `Decimal` rather than `Int`, because the obvious
+        // `units * ratio / total` overflows long before either end of it is
+        // an unreasonable number: a trillion of a four-place currency is
+        // 10^16 minor units, and a ratio in the thousands takes the product
+        // past Int64 — a crash on the way to a division that lands well
+        // inside it.
+        let scale = Decimal(total)
+        let amount = Decimal(units)
+
+        let exact = ratios.map { amount * Decimal($0) / scale }
+        var shares = exact.map { value -> Int in
+            var truncated = Decimal()
+            var value = value
+            NSDecimalRound(&truncated, &value, 0, .down)
+            return NSDecimalNumber(decimal: truncated).intValue
+        }
         var remainder = units - shares.reduce(0, +)
 
         // Ordered by what each share lost to truncation, so the money goes
         // where it was nearest to being owed.
         let owed = ratios.indices
-            .map { (index: $0, fraction: units * ratios[$0] % total) }
+            .map { (index: $0, fraction: exact[$0] - Decimal(shares[$0])) }
             .sorted { $0.fraction > $1.fraction }
 
         var index = 0

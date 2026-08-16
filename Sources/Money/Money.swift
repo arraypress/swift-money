@@ -64,10 +64,40 @@ public struct Money: Sendable, Hashable, Codable {
     /// the error better across thousands of lines, but it makes a single
     /// invoice line surprising — ¥1000.50 becoming ¥1000 reads as a mistake
     /// to the person holding the invoice, whatever it does to the aggregate.
+    ///
+    /// - Precondition: The value is a number, and small enough to hold. A
+    ///   `Decimal` runs to 10^127 and this holds about 9×10^18 minor units,
+    ///   so there are values it cannot take — and one that does not fit used
+    ///   to wrap around into a different, smaller, wrong amount. If the
+    ///   number came from somewhere other than your own arithmetic, use
+    ///   ``init(exactly:in:rounding:)`` and handle the refusal.
     public init(_ value: Decimal, in currency: Currency, rounding: RoundingMode = .half) {
+        guard let money = Money(exactly: value, in: currency, rounding: rounding) else {
+            preconditionFailure(
+                "\(value) is not an amount that can be held in \(currency.code): "
+                + "amounts run to about 9×10^18 \(currency.code) minor units."
+            )
+        }
+        self = money
+    }
+
+    /// An amount from a decimal, or nothing if it cannot be held.
+    ///
+    /// The same conversion, for a number that came from somewhere you do not
+    /// control — a decoded file, a spreadsheet column, another system's API.
+    /// Wrapping silently is how a nine-figure sum becomes a small one with
+    /// the wrong sign, and nothing downstream can tell that it happened.
+    public init?(exactly value: Decimal, in currency: Currency, rounding: RoundingMode = .half) {
+        guard value.isFinite else { return nil }
+
         var scaled = value * Decimal(currency.unitsPerMajor)
         var rounded = Decimal()
         NSDecimalRound(&rounded, &scaled, 0, rounding.foundation)
+
+        // `intValue` is what wraps: it takes the low bits of anything too
+        // big and hands them back as though they were the number. Compared
+        // against the bounds as decimals, which are exact at this size.
+        guard rounded >= Decimal(Int.min), rounded <= Decimal(Int.max) else { return nil }
 
         self.units = NSDecimalNumber(decimal: rounded).intValue
         self.currency = currency
@@ -154,7 +184,10 @@ extension Money {
     /// a thousand once a year. Text that came from a person should be parsed
     /// with a locale by whatever collected it.
     static func units(of text: String, decimals: Int) -> Int? {
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        // Newlines as well as spaces: an amount read from a file or a pipe
+        // arrives with the line ending still on it, and refusing that is
+        // refusing the ordinary way of getting a number into a program.
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
         var negative = false

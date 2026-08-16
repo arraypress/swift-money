@@ -25,7 +25,8 @@
 import Foundation
 
 /// A currency, by its ISO 4217 code.
-public struct Currency: Sendable, Hashable, Codable, CustomStringConvertible {
+public struct Currency: Sendable, Hashable, Codable, CustomStringConvertible,
+                        ExpressibleByStringLiteral {
 
     /// The three-letter code, upper-cased: `GBP`, `JPY`, `KWD`.
     public let code: String
@@ -41,6 +42,16 @@ public struct Currency: Sendable, Hashable, Codable, CustomStringConvertible {
     }
 
     public var description: String { code }
+
+    /// So a currency can be written as one: `let price = Money("12.34", in: "GBP")`.
+    ///
+    /// Safe as a literal because the initialiser takes any three letters —
+    /// there is no failable case to hide, and a code the table has not caught
+    /// up with behaves as an ordinary two-place currency rather than
+    /// stopping. This is on `Currency` rather than on `String`: it is the
+    /// place where a string is already known to be a currency code, which is
+    /// the difference between an affordance and an imposition.
+    public init(stringLiteral value: String) { self.init(value) }
 
     /// Whether this is a code the table knows.
     public var isKnown: Bool { Currency.places[code] != nil }
@@ -60,7 +71,15 @@ public struct Currency: Sendable, Hashable, Codable, CustomStringConvertible {
 
     /// The symbol a reader expects, from the system rather than from a table
     /// — symbols are a display matter, and the system's are current.
+    ///
+    /// A code that is not three letters gets itself back rather than an
+    /// answer from the system: asked for the symbol of `""`, Foundation
+    /// returns the one for wherever the reader happens to be, so an amount
+    /// in no currency at all printed as pounds in London and as dollars in
+    /// New York.
     public var symbol: String {
+        guard code.count == 3, code.allSatisfy({ $0.isASCII && $0.isLetter }) else { return code }
+
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.currencyCode = code
