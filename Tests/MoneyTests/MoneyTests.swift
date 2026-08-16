@@ -101,3 +101,19 @@ final class MoneyTests: XCTestCase {
         XCTAssertEqual(Money("1000", in: .jpy)?.decimal, Decimal(1000))
     }
 }
+
+extension MoneyTests {
+
+    func testTheDefaultRoundingIsWhatAnInvoiceExpects() {
+        // Half away from zero, matching percentage() and matching what tax
+        // authorities specify. Bankers' rounding would make ¥1000.50 into
+        // ¥1000, which reads as a mistake to the person holding the invoice.
+        XCTAssertEqual(Money(Decimal(string: "1000.5")!, in: .jpy).units, 1001)
+        XCTAssertEqual(Money(Decimal(string: "2.5")!, in: .jpy).units, 3)
+        XCTAssertEqual(Money(Decimal(string: "3.5")!, in: .jpy).units, 4)
+
+        // And bankers' is there for anyone who wants it.
+        XCTAssertEqual(Money(Decimal(string: "2.5")!, in: .jpy, rounding: .bankers).units, 2)
+        XCTAssertEqual(Money(Decimal(string: "3.5")!, in: .jpy, rounding: .bankers).units, 4)
+    }
+}

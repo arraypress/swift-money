@@ -58,7 +58,13 @@ public struct Money: Sendable, Hashable, Codable {
     /// Rounding is stated rather than assumed: twenty per cent of £1,234.56
     /// is £246.912, which has to become £246.91 before it can be charged, and
     /// the caller should be able to say which way that goes.
-    public init(_ value: Decimal, in currency: Currency, rounding: RoundingMode = .bankers) {
+    ///
+    /// Half away from zero by default, matching ``percentage(_:rounding:)``
+    /// and matching what tax authorities specify. Bankers' rounding spreads
+    /// the error better across thousands of lines, but it makes a single
+    /// invoice line surprising — ¥1000.50 becoming ¥1000 reads as a mistake
+    /// to the person holding the invoice, whatever it does to the aggregate.
+    public init(_ value: Decimal, in currency: Currency, rounding: RoundingMode = .half) {
         var scaled = value * Decimal(currency.unitsPerMajor)
         var rounded = Decimal()
         NSDecimalRound(&rounded, &scaled, 0, rounding.foundation)
