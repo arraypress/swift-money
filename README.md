@@ -39,6 +39,31 @@ Money(Decimal(string: "246.912")!, in: .gbp)   // rounded to £246.91, deliberat
 
 Text typed by a person should be parsed with a locale by whatever collected it. `1.234` means one thing in Britain and another in Germany, and a library that guesses is wrong by a factor of a thousand once a year.
 
+## Adding up a column
+
+```swift
+let lines = [Money("149.00", in: .gbp)!, Money("420.00", in: .gbp)!]
+
+lines.total            // £569.00, or nil for an empty column
+lines.total(in: .gbp)  // £569.00, or nil if anything in it is not in pounds
+```
+
+Both are written on a sequence of `Money`, so they appear only where there is money to add. `total(in:)` is the one for figures that came from somewhere — an empty column is zero in the currency you named, and a stray amount in another one is a `nil` you can handle rather than a stopped process. `+` will not mix currencies and never has: two currencies are two amounts, and turning one into the other needs a rate and a date this does not have.
+
+There are deliberately **no extensions on `String`, `Int` or `Decimal`**. `"12.34".money` would put a property on every string in your program to save four characters in one file, and `5.gbp` cannot say whether it means five pounds or five pence. A currency can be written as a literal where one is already expected:
+
+```swift
+Money("12.34", in: "GBP")     // Currency: ExpressibleByStringLiteral
+```
+
+## Numbers that are not amounts
+
+`Money(someDecimal, in: .gbp)` stops if the number cannot be held. A `Decimal` runs to 10^127 and money runs to about 9×10^18 minor units, and the alternative to stopping is a nine-figure sum wrapping into a small one with the wrong sign — which is what it used to do. For a number that came from a file, a spreadsheet, or another system, use the form that refuses:
+
+```swift
+guard let amount = Money(exactly: decoded, in: .gbp) else { … }
+```
+
 ## Decimals, and whose answer to believe
 
 The number of places a currency has is not a display preference — it is the size of the smallest amount that exists.
