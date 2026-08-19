@@ -51,6 +51,41 @@ final class ArithmeticTests: XCTestCase {
         XCTAssertEqual(gbp("100.00").percentage(19).decimalString, "19.00")
     }
 
+    func testDirectionalRoundingIsAboutZeroNotTheNumberLine() {
+        // −333 units at 50% is −166.5. Toward zero is −166 and away is −167
+        // — and Foundation's floor and ceiling say exactly the opposite,
+        // which is the bug this pins: a credit note must round by the same
+        // rule as the charge it reverses.
+        let credit = Money(units: -333, in: .gbp)
+        XCTAssertEqual(credit.percentage(50, rounding: .down).units, -166)
+        XCTAssertEqual(credit.percentage(50, rounding: .up).units, -167)
+        XCTAssertEqual(credit.percentage(50, rounding: .half).units, -167)
+
+        let charge = Money(units: 333, in: .gbp)
+        XCTAssertEqual(charge.percentage(50, rounding: .down).units, 166)
+        XCTAssertEqual(charge.percentage(50, rounding: .up).units, 167)
+        XCTAssertEqual(charge.percentage(50, rounding: .half).units, 167)
+    }
+
+    func testAConvertedCreditRoundsTheWayItWasAsked() {
+        // The same promise on the other rounding path: −1.665 in pence is
+        // −166.5, and toward zero means −166 whichever sign it carries.
+        let value = Decimal(string: "-1.665")!
+        XCTAssertEqual(Money(exactly: value, in: .gbp, rounding: .down)?.units, -166)
+        XCTAssertEqual(Money(exactly: value, in: .gbp, rounding: .up)?.units, -167)
+        XCTAssertEqual(Money(exactly: value, in: .gbp, rounding: .half)?.units, -167)
+    }
+
+    func testAPercentageAtTheEdgeOfWhatMoneyHoldsDoesNotWrap() {
+        // NSDecimalNumber.intValue hands back the low bits of anything too
+        // big. Everything money can hold, taken whole and taken in half,
+        // must come back exact — not wrapped into a smaller, wrong amount.
+        let everything = Money(units: Int.max, in: .jpy)
+        XCTAssertEqual(everything.percentage(100).units, Int.max)
+        XCTAssertEqual(everything.percentage(50).units, 4_611_686_018_427_387_904)
+        XCTAssertEqual(everything.taxIncluded(at: 100).units, 4_611_686_018_427_387_904)
+    }
+
     func testMakingANetFigureGross() {
         XCTAssertEqual(gbp("100.00").adding(percent: 20).decimalString, "120.00")
         XCTAssertEqual(gbp("1234.56").adding(percent: 20).decimalString, "1481.47")

@@ -29,6 +29,11 @@ extension Money {
 
     /// The amount as somebody in `locale` would read it: `£1,234.56`,
     /// `1.234,56 €`, `¥1,000`.
+    ///
+    /// The default follows the machine, which is right for a screen and
+    /// wrong for a record: the same program prints the same amount two ways
+    /// on two laptops. A document meant to come out identical wherever it is
+    /// generated should pass its locale rather than inherit one.
     public func formatted(in locale: Locale = .current) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
@@ -55,7 +60,12 @@ extension Money {
         formatter.minimumFractionDigits = currency.decimals
         formatter.maximumFractionDigits = currency.decimals
 
-        return formatter.string(from: decimal as NSDecimalNumber)
+        // The appended space separates the code where the locale prefixes
+        // its symbol — `GBP 1,234.56` — and becomes a stray trailing space
+        // where the locale suffixes it instead. Trimmed rather than
+        // special-cased per locale.
+        let text = formatter.string(from: decimal as NSDecimalNumber)
             ?? "\(currency.code) \(decimalString)"
+        return text.trimmingCharacters(in: .whitespaces)
     }
 }

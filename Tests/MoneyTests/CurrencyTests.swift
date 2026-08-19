@@ -152,6 +152,23 @@ final class CurrencyTests: XCTestCase {
         XCTAssertEqual(Money("1234.56", in: .gbp)?.description, "GBP 1234.56")
     }
 
+    func testTheCodeFormEndsCleanlyWhereTheSymbolTrails() throws {
+        // A German reader's pattern puts the currency after the number, and
+        // the space this appends to separate a leading code became a stray
+        // trailing one there: "1.234,56 EUR ". The code must end the string.
+        let german = try XCTUnwrap(
+            Money("1234.56", in: .eur)?.formattedWithCode(in: Locale(identifier: "de_DE"))
+        )
+        XCTAssertTrue(german.hasSuffix("EUR"), "[\(german)]")
+        XCTAssertFalse(german.last?.isWhitespace ?? false, "[\(german)]")
+
+        // And where the code leads, the separating space survives the trim.
+        let british = try XCTUnwrap(
+            Money("1234.56", in: .gbp)?.formattedWithCode(in: Locale(identifier: "en_GB"))
+        )
+        XCTAssertTrue(british.hasPrefix("GBP 1,234.56"), "[\(british)]")
+    }
+
     // MARK: Codable
 
     func testMoneySurvivesJSON() throws {

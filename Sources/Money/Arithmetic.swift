@@ -11,6 +11,13 @@
 //  that rounds each share and moves on has thrown a penny away. Which is why
 //  ``Money/allocate(_:)`` exists and why plain division does not.
 //
+//  Overflow traps, the way Swift's own integers trap: an amount past nine
+//  quintillion minor units is arithmetic gone wrong, not an amount, and a
+//  crash at the sum names the fault where returning a wrapped number would
+//  smuggle it into an account. The conversions that take numbers from
+//  outside — parsing, `init(exactly:)` — refuse instead, because outside
+//  numbers are not arithmetic gone wrong, they are input.
+//
 
 import Foundation
 
@@ -36,6 +43,10 @@ extension Money {
     public static func -= (left: inout Money, right: Money) { left = left - right }
 
     /// A whole number of them.
+    ///
+    /// Traps on overflow like `+` does. A quantity that arrived from a file
+    /// rather than from your own arithmetic should be range-checked by
+    /// whatever read it, the way it validates everything else it reads.
     public static func * (money: Money, times: Int) -> Money {
         Money(units: money.units * times, in: money.currency)
     }
@@ -117,9 +128,9 @@ extension Money {
     public func percentage(_ percent: Decimal, rounding: RoundingMode = .half) -> Money {
         var product = Decimal(units) * percent / 100
         var rounded = Decimal()
-        NSDecimalRound(&rounded, &product, 0, rounding.foundation)
+        NSDecimalRound(&rounded, &product, 0, rounding.foundation(for: product))
 
-        return Money(units: NSDecimalNumber(decimal: rounded).intValue, in: currency)
+        return Money(units: unitsRefusingToWrap(rounded, taking: "\(percent)%"), in: currency)
     }
 
     /// This amount plus a percentage of it — a net figure made gross.
@@ -138,9 +149,24 @@ extension Money {
 
         var product = Decimal(units) * percent / divisor
         var rounded = Decimal()
-        NSDecimalRound(&rounded, &product, 0, rounding.foundation)
+        NSDecimalRound(&rounded, &product, 0, rounding.foundation(for: product))
 
-        return Money(units: NSDecimalNumber(decimal: rounded).intValue, in: currency)
+        return Money(units: unitsRefusingToWrap(rounded, taking: "the \(percent)% inside"), in: currency)
+    }
+
+    /// `rounded` as minor units, refusing to wrap.
+    ///
+    /// `NSDecimalNumber.intValue` hands back the low bits of anything too
+    /// big as though they were the number — the same wrap ``init(exactly:in:rounding:)``
+    /// refuses at the door. Arithmetic that outgrows what money can hold is a
+    /// fault, and it traps the way an overflowing `+` does, rather than
+    /// returning a smaller amount with the wrong sign.
+    private func unitsRefusingToWrap(_ rounded: Decimal, taking what: String) -> Int {
+        precondition(
+            rounded >= Decimal(Int.min) && rounded <= Decimal(Int.max),
+            "Taking \(what) of \(self) overflows: amounts run to about 9×10^18 minor units."
+        )
+        return NSDecimalNumber(decimal: rounded).intValue
     }
 }
 
@@ -177,6 +203,10 @@ extension Money {
     /// weight. The shares are proportional and their total is exactly this
     /// amount — the remainder goes to the largest fractional part first,
     /// which is the fairest of the arbitrary choices.
+    ///
+    /// A negative ratio is taken as given, so long as the total stays
+    /// positive: it is a row that owes rather than receives, its share comes
+    /// out negative, and the shares still sum to exactly this amount.
     ///
     /// - Returns: An empty array when the ratios are empty or sum to nothing.
     public func allocate(ratios: [Int]) -> [Money] {

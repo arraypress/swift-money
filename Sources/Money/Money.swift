@@ -92,7 +92,7 @@ public struct Money: Sendable, Hashable, Codable {
 
         var scaled = value * Decimal(currency.unitsPerMajor)
         var rounded = Decimal()
-        NSDecimalRound(&rounded, &scaled, 0, rounding.foundation)
+        NSDecimalRound(&rounded, &scaled, 0, rounding.foundation(for: scaled))
 
         // `intValue` is what wraps: it takes the low bits of anything too
         // big and hands them back as though they were the number. Compared
@@ -133,8 +133,17 @@ public struct Money: Sendable, Hashable, Codable {
         Decimal(units) / Decimal(currency.unitsPerMajor)
     }
 
+    /// Whether there is nothing here.
     public var isZero: Bool { units == 0 }
+
+    /// Whether this is a credit.
     public var isNegative: Bool { units < 0 }
+
+    /// The same amount, made positive.
+    ///
+    /// One value has no positive twin: `Int.min` units traps, as `abs`
+    /// does — an amount at the very floor of what money can hold is
+    /// arithmetic gone wrong long before it is a magnitude.
     public var magnitude: Money { Money(units: abs(units), in: currency) }
 }
 
@@ -154,18 +163,26 @@ extension Money {
         /// rounding thousands of lines.
         case bankers
 
-        /// Toward zero, always.
+        /// Toward zero, always — for a credit as much as a charge: −166.5
+        /// becomes −166.
         case down
 
-        /// Away from zero, always.
+        /// Away from zero, always: −166.5 becomes −167.
         case up
 
-        var foundation: NSDecimalNumber.RoundingMode {
+        /// The Foundation mode that lands `value` where this mode promises.
+        ///
+        /// Foundation's `.down` and `.up` are floor and ceiling — directions
+        /// along the number line — where these modes promise directions
+        /// relative to zero. The two readings agree for a positive amount and
+        /// invert for a negative one, so the sign of the value picks the
+        /// mapping: a credit rounded toward zero is a ceiling, not a floor.
+        func foundation(for value: Decimal) -> NSDecimalNumber.RoundingMode {
             switch self {
             case .half: return .plain
             case .bankers: return .bankers
-            case .down: return .down
-            case .up: return .up
+            case .down: return value < 0 ? .up : .down
+            case .up: return value < 0 ? .down : .up
             }
         }
     }
